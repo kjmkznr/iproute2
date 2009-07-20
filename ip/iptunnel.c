@@ -35,6 +35,7 @@
 #include "ip_common.h"
 #include "tunnel.h"
 
+#define ARPHRD_ETHERIP 799
 static void usage(void) __attribute__((noreturn));
 
 static void usage(void)
@@ -281,8 +282,8 @@ static int do_add(int cmd, int argc, char **argv)
 		fprintf(stderr, "ttl != 0 and noptmudisc are incompatible\n");
 		return -1;
 	}
-	if (p->iph.protocol == IPPROTO_ETHERIP) {
-		if ((cmd == SIOCADDTUNNEL || cmd == SIOCCHGTUNNEL) && !p->iph.daddr) {
+	if (p.iph.protocol == IPPROTO_ETHERIP) {
+		if ((cmd == SIOCADDTUNNEL || cmd == SIOCCHGTUNNEL) && !p.iph.daddr) {
 			fprintf(stderr, "EtherIP tunnel requires a "
 					"destination address.\n");
 			return -1;
@@ -297,7 +298,7 @@ static int do_add(int cmd, int argc, char **argv)
 	case IPPROTO_IPV6:
 		return tnl_add_ioctl(cmd, "sit0", p.name, &p);
 	case IPPROTO_ETHERIP:
-		return tnl_add_ioctl(cmd, "etherip0", p.name, &p);
+		return tnl_add_ioctl(cmd, "ethip0", p.name, &p);
 	default:
 		fprintf(stderr, "cannot determine tunnel mode (ipip, gre, sit or etherip)\n");
 		return -1;
@@ -497,7 +498,7 @@ static int do_show(int argc, char **argv)
 		err = tnl_get_ioctl(p.name[0] ? p.name : "sit0", &p);
 		break;
 	case IPPROTO_ETHERIP:
-		err = do_get_ioctl(p.name[0] ? p.name : "ethip0", &p);
+		err = tnl_get_ioctl(p.name[0] ? p.name : "ethip0", &p);
 		break;
 	default:
 		do_tunnels_list(&p);
