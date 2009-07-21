@@ -443,6 +443,7 @@ static int do_tunnels_list(struct ip_tunnel_parm *p)
 			   &tx_bytes, &tx_packets, &tx_errs, &tx_drops,
 			   &tx_fifo, &tx_colls, &tx_carrier) != 14)
 			continue;
+		fprintf(stderr, "do_tunnels_list: p->name=%s, name=%s\n", p->name, name);
 		if (p->name[0] && strcmp(p->name, name))
 			continue;
 		type = tnl_ioctl_get_iftype(name);
