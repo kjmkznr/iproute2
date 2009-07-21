@@ -14,6 +14,7 @@
  * Rani Assaf <rani@magic.metawire.com> 980929:	resolve addresses
  * Rani Assaf <rani@magic.metawire.com> 980930:	do not allow key for ipip/sit
  * Phil Karn <karn@ka9q.ampr.org>	990408:	"pmtudisc" flag
+ * Lennert Buytenhek <buytenh@wantstofly.org> 050112: etherip support
  */
 
 #include <stdio.h>
@@ -34,12 +35,13 @@
 #include "ip_common.h"
 #include "tunnel.h"
 
+#define ARPHRD_ETHERIP 799
 static void usage(void) __attribute__((noreturn));
 
 static void usage(void)
 {
 	fprintf(stderr, "Usage: ip tunnel { add | change | del | show | prl } [ NAME ]\n");
-	fprintf(stderr, "          [ mode { ipip | gre | sit | isatap } ] [ remote ADDR ] [ local ADDR ]\n");
+	fprintf(stderr, "          [ mode { ipip | gre | sit | isatap | etherip } ] [ remote ADDR ] [ local ADDR ]\n");
 	fprintf(stderr, "          [ [i|o]seq ] [ [i|o]key KEY ] [ [i|o]csum ]\n");
 	fprintf(stderr, "          [ prl-default ADDR ] [ prl-nodefault ADDR ] [ prl-delete ADDR ]\n");
 	fprintf(stderr, "          [ ttl TTL ] [ tos TOS ] [ [no]pmtudisc ] [ dev PHYS_DEV ]\n");
@@ -99,6 +101,13 @@ static int parse_args(int argc, char **argv, int cmd, struct ip_tunnel_parm *p)
 				}
 				p->iph.protocol = IPPROTO_IPV6;
 				isatap++;
+			} else if (strcmp(*argv, "etherip") == 0 ||
+				   strcmp(*argv, "ether/ip") == 0) {
+				if (p->iph.protocol && p->iph.protocol != IPPROTO_ETHERIP) {
+					fprintf(stderr,"You managed to ask for more than one tunnel mode.\n");
+					exit(-1);
+				}
+				p->iph.protocol = IPPROTO_ETHERIP;
 			} else {
 				fprintf(stderr,"Cannot guess tunnel mode.\n");
 				exit(-1);
@@ -225,12 +234,14 @@ static int parse_args(int argc, char **argv, int cmd, struct ip_tunnel_parm *p)
 		else if (memcmp(p->name, "isatap", 6) == 0) {
 			p->iph.protocol = IPPROTO_IPV6;
 			isatap++;
+		}else if(memcmp(p->name, "etherip", 7) == 0) {
+			p->iph.protocol = IPPROTO_ETHERIP;
 		}
 	}
 
-	if (p->iph.protocol == IPPROTO_IPIP || p->iph.protocol == IPPROTO_IPV6) {
+	if (p->iph.protocol == IPPROTO_IPIP || p->iph.protocol == IPPROTO_IPV6 || p->iph.protocol == IPPROTO_ETHERIP) {
 		if ((p->i_flags & GRE_KEY) || (p->o_flags & GRE_KEY)) {
-			fprintf(stderr, "Keys are not allowed with ipip and sit.\n");
+			fprintf(stderr, "Keys are not allowed with ipip, sit and etherip.\n");
 			return -1;
 		}
 	}
@@ -271,6 +282,13 @@ static int do_add(int cmd, int argc, char **argv)
 		fprintf(stderr, "ttl != 0 and noptmudisc are incompatible\n");
 		return -1;
 	}
+	if (p.iph.protocol == IPPROTO_ETHERIP) {
+		if ((cmd == SIOCADDTUNNEL || cmd == SIOCCHGTUNNEL) && !p.iph.daddr) {
+			fprintf(stderr, "EtherIP tunnel requires a "
+					"destination address.\n");
+			return -1;
+		}
+	}
 
 	switch (p.iph.protocol) {
 	case IPPROTO_IPIP:
@@ -279,8 +297,10 @@ static int do_add(int cmd, int argc, char **argv)
 		return tnl_add_ioctl(cmd, "gre0", p.name, &p);
 	case IPPROTO_IPV6:
 		return tnl_add_ioctl(cmd, "sit0", p.name, &p);
+	case IPPROTO_ETHERIP:
+		return tnl_add_ioctl(cmd, "ethip0", p.name, &p);
 	default:
-		fprintf(stderr, "cannot determine tunnel mode (ipip, gre or sit)\n");
+		fprintf(stderr, "cannot determine tunnel mode (ipip, gre, sit or etherip)\n");
 		return -1;
 	}
 	return -1;
@@ -300,6 +320,8 @@ static int do_del(int argc, char **argv)
 		return tnl_del_ioctl("gre0", p.name, &p);
 	case IPPROTO_IPV6:
 		return tnl_del_ioctl("sit0", p.name, &p);
+	case IPPROTO_ETHERIP:
+		return tnl_del_ioctl("etherip0", p.name, &p);
 	default:
 		return tnl_del_ioctl(p.name, p.name, &p);
 	}
@@ -353,19 +375,19 @@ static void print_tunnel(struct ip_tunnel_parm *p)
 	if (p->iph.ttl)
 		printf(" ttl %d ", p->iph.ttl);
 	else
-		printf(" ttl inherit ");
+		printf(" ttl %s", p->iph.protocol != IPPROTO_ETHERIP ? "inherit " : "default");
 
 	if (p->iph.tos) {
 		SPRINT_BUF(b1);
 		printf(" tos");
 		if (p->iph.tos&1)
-			printf(" inherit");
+			printf(" %s", p->iph.protocol != IPPROTO_ETHERIP ? "inherit" : "default");
 		if (p->iph.tos&~1)
 			printf("%c%s ", p->iph.tos&1 ? '/' : ' ',
 			       rtnl_dsfield_n2a(p->iph.tos&~1, b1, sizeof(b1)));
 	}
 
-	if (!(p->iph.frag_off&htons(IP_DF)))
+	if (p->iph.protocol != IPPROTO_ETHERIP && !(p->iph.frag_off&htons(IP_DF)))
 		printf(" nopmtudisc");
 
 	if ((p->i_flags&GRE_KEY) && (p->o_flags&GRE_KEY) && p->o_key == p->i_key)
@@ -428,7 +450,10 @@ static int do_tunnels_list(struct ip_tunnel_parm *p)
 			fprintf(stderr, "Failed to get type of [%s]\n", name);
 			continue;
 		}
-		if (type != ARPHRD_TUNNEL && type != ARPHRD_IPGRE && type != ARPHRD_SIT)
+		if (type != ARPHRD_TUNNEL &&
+		    type != ARPHRD_IPGRE &&
+		    type != ARPHRD_SIT &&
+		    type != ARPHRD_ETHERIP)
 			continue;
 		memset(&p1, 0, sizeof(p1));
 		if (tnl_get_ioctl(name, &p1))
@@ -471,6 +496,9 @@ static int do_show(int argc, char **argv)
 		break;
 	case IPPROTO_IPV6:
 		err = tnl_get_ioctl(p.name[0] ? p.name : "sit0", &p);
+		break;
+	case IPPROTO_ETHERIP:
+		err = tnl_get_ioctl(p.name[0] ? p.name : "ethip0", &p);
 		break;
 	default:
 		do_tunnels_list(&p);
