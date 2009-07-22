@@ -35,7 +35,10 @@
 #include "ip_common.h"
 #include "tunnel.h"
 
-#define ARPHRD_ETHERIP 799
+#ifndef ARPHRD_ETHERIP
+#define ARPHRD_ETHERIP 0xEEE
+#endif
+
 static void usage(void) __attribute__((noreturn));
 
 static void usage(void)
@@ -443,7 +446,6 @@ static int do_tunnels_list(struct ip_tunnel_parm *p)
 			   &tx_bytes, &tx_packets, &tx_errs, &tx_drops,
 			   &tx_fifo, &tx_colls, &tx_carrier) != 14)
 			continue;
-		fprintf(stderr, "do_tunnels_list: p->name=%s, name=%s\n", p->name, name);
 		if (p->name[0] && strcmp(p->name, name))
 			continue;
 		type = tnl_ioctl_get_iftype(name);
