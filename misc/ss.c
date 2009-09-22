@@ -1302,7 +1302,7 @@ static void tcp_show_info(const struct nlmsghdr *nlh, struct inet_diag_msg *r)
 		}
 
 		if (tb[INET_DIAG_CONG])
-			printf("%s", (char *) RTA_DATA(tb[INET_DIAG_CONG]));
+			printf(" %s", (char *) RTA_DATA(tb[INET_DIAG_CONG]));
 
 		if (info->tcpi_options & TCPI_OPT_WSCALE)
 			printf(" wscale:%d,%d", info->tcpi_snd_wscale,
@@ -1393,9 +1393,10 @@ static int tcp_show_sock(struct nlmsghdr *nlh, struct filter *f)
 		if (r->idiag_uid)
 			printf(" uid:%u", (unsigned)r->idiag_uid);
 		printf(" ino:%u", r->idiag_inode);
-		printf(" sk:%08x", r->id.idiag_cookie[0]);
+		printf(" sk:");
 		if (r->id.idiag_cookie[1] != 0)
 			printf("%08x", r->id.idiag_cookie[1]);
+ 		printf("%08x", r->id.idiag_cookie[0]);
 	}
 	if (show_mem || show_tcpinfo) {
 		printf("\n\t");
